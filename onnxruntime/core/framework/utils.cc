@@ -574,16 +574,16 @@ common::Status VerifyInputTensorsAllocatedContiguously(OpKernelContext* context)
     const Tensor* curr_input = context->Input<Tensor>(i);
 
     ORT_ENFORCE(prev_input->Shape().Size() >= 0);
-    
+
     size_t input_element_count = static_cast<size_t>(prev_input->Shape().Size());
     size_t input_element_size = prev_input->DataType()->Size();
     size_t input_aligned_bytes = 0;
-    
-    ORT_RETURN_IF_NOT(IAllocator::CalcMemSizeForArrayWithAlignment<256>(input_element_count, input_element_size, &input_aligned_bytes));
-    
-    ORT_RETURN_IF_NOT(curr_input->DataRaw() == static_cast<const int8_t*>(prev_input->DataRaw()) + input_aligned_bytes ||
-                      curr_input->DataRaw() == static_cast<const int8_t*>(prev_input->DataRaw()) + prev_input->SizeInBytes());
-    
+
+    ORT_ENFORCE(IAllocator::CalcMemSizeForArrayWithAlignment<64>(input_element_count, input_element_size, &input_aligned_bytes));
+
+    ORT_ENFORCE(curr_input->DataRaw() == static_cast<const int8_t*>(prev_input->DataRaw()) + input_aligned_bytes ||
+                curr_input->DataRaw() == static_cast<const int8_t*>(prev_input->DataRaw()) + prev_input->SizeInBytes());
+
     prev_input = curr_input;
   }
   return Status::OK();

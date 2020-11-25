@@ -13,7 +13,8 @@ OrtValuePatternPlanner::OrtValuePatternPlanner(const ExecutionPlanBase& executio
   }
 }
 
-common::Status OrtValuePatternPlanner::TraceAllocation(int ort_value_idx, const std::vector<size_t>& program_counter_start, const std::vector<size_t>& program_counter_end, size_t size) {
+common::Status OrtValuePatternPlanner::TraceAllocation(int ort_value_idx, const std::vector<size_t>& program_counter_start,
+                                                       const std::vector<size_t>& program_counter_end, size_t size, bool no_expand, size_t* offset_out) {
   // TODO(codemzs): refactor code.
   auto location = execution_planner_.GetLocation(ort_value_idx);
   auto it = planner_map_.find(location);
@@ -21,7 +22,7 @@ common::Status OrtValuePatternPlanner::TraceAllocation(int ort_value_idx, const 
     return common::Status(common::ONNXRUNTIME, common::INVALID_ARGUMENT);
   }
 
-  it->second->TraceAllocation(ort_value_idx, program_counter_start, program_counter_end, size);
+  it->second->TraceAllocation(ort_value_idx, program_counter_start, program_counter_end, size, no_expand, offset_out);
   return common::Status::OK();
 }
 
@@ -36,14 +37,14 @@ common::Status OrtValuePatternPlanner::TraceAllocation(int ort_value_idx, size_t
   return common::Status::OK();
 }
 
-common::Status OrtValuePatternPlanner::TraceFree(int ort_value_index) {
+common::Status OrtValuePatternPlanner::TraceFree(int ort_value_index, bool erase) {
   auto location = execution_planner_.GetLocation(ort_value_index);
   auto it = planner_map_.find(location);
   if (it == planner_map_.end()) {
     return common::Status(common::ONNXRUNTIME, common::INVALID_ARGUMENT);
   }
 
-  it->second->TraceFree(ort_value_index);
+  it->second->TraceFree(ort_value_index, erase);
   return common::Status::OK();
 }
 

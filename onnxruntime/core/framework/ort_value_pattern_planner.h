@@ -19,9 +19,11 @@ class ExecutionPlanBase;
 class OrtValuePatternPlanner {
  public:
   explicit OrtValuePatternPlanner(const ExecutionPlanBase& execution_plan);
-  common::Status TraceAllocation(int ort_value_idx, const std::vector<size_t>& program_counter_start, const std::vector<size_t>& program_counter_end, size_t size);
+  common::Status TraceAllocation(int ort_value_idx, const std::vector<size_t>& program_counter_start,
+                                 const std::vector<size_t>& program_counter_end, size_t size, bool no_expand = false, size_t* offset_out = nullptr);
+
   common::Status TraceAllocation(int ort_value_idx, size_t size);
-  common::Status TraceFree(int ort_value_index);
+  common::Status TraceFree(int ort_value_index, bool erase = false);
   common::Status GeneratePatterns(MemoryPatternGroup* out);
   ORT_DISALLOW_COPY_ASSIGNMENT_AND_MOVE(OrtValuePatternPlanner);
 

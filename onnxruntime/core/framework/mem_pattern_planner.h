@@ -17,6 +17,8 @@ limitations under the License.
 
 #pragma once
 #include <list>
+#include <fstream>
+#include <string>
 #include "core/common/safeint.h"
 #include "core/framework/mem_pattern.h"
 #include "core/framework/allocation_planner.h"
@@ -59,7 +61,8 @@ class MemPatternPlanner {
     return false;
   }
 
-  void TraceAllocation(int ml_value_idx, const std::vector<size_t>& program_counter_start, const std::vector<size_t>& program_counter_end, size_t size) {
+  void TraceAllocation(int ml_value_idx, const std::vector<size_t>& program_counter_start, const std::vector<size_t>& program_counter_end, size_t size,
+                       bool no_expand = false, size_t* offset_out = nullptr) {
     std::lock_guard<OrtMutex> lock(lock_);
 
     if (size == 0) {
@@ -104,6 +107,12 @@ class MemPatternPlanner {
       best_offset = current;
     }
 
+    // Try to statically allocate tensors whose shape was inferred at runtime only if
+    // they can fit in this statically allocated buffer.
+    if (no_expand && ((best_offset + size) >= buffer_size_)) {
+      return;
+    }
+
     // we only need to bounds check the addition of size to best_offset as that is the only time we extend
     // the maximum size of the buffer.
     buffer_size_ = std::max(buffer_size_, SafeInt<size_t>(best_offset) + size);
@@ -120,6 +129,10 @@ class MemPatternPlanner {
     }
 
     blocks_.insert(best_fit_it, (static_cast<int>(allocs_.size()) - 1));
+
+    if (offset_out) {
+      *offset_out = best_offset;
+    }
   }
 
   void TraceAllocation(int ml_value_idx, size_t size) {
@@ -179,11 +192,12 @@ class MemPatternPlanner {
     blocks_.insert(best_fit_it, (static_cast<int>(allocs_.size()) - 1));
   }
 
-  void TraceFree(int ml_value_index) {
+  void TraceFree(int ml_value_index, bool erase = false) {
     std::lock_guard<OrtMutex> lock(lock_);
 
     for (auto it = blocks_.begin(); it != blocks_.end(); it++) {
       if (allocs_[*it].index_ == ml_value_index) {
+        allocs_[*it].deleted_ = erase;
         blocks_.erase(it);
         break;
       }
@@ -195,11 +209,11 @@ class MemPatternPlanner {
 
     // Time schedules of overlapping memory blocks SHOULD NOT intersect.
     for (size_t index_1 = 0; index_1 < allocs_.size(); index_1 += 1) {
-      if (!allocs_[index_1].reuse_)
+      if (!allocs_[index_1].reuse_ || allocs_[index_1].deleted_)
         continue;
 
       for (size_t index_2 = index_1 + 1; index_2 < allocs_.size(); index_2 += 1) {
-        if (!allocs_[index_2].reuse_)
+        if (!allocs_[index_2].reuse_ || allocs_[index_2].deleted_)
           continue;
 
         size_t alloc_1_start = allocs_[index_1].block_.offset_;
@@ -223,6 +237,10 @@ class MemPatternPlanner {
     MemoryPattern pattern;
     pattern.peak_size_ = buffer_size_;
     for (auto& alloc : allocs_) {
+      if(alloc.deleted_) {
+        continue;
+      }
+      
       pattern.patterns_[alloc.index_] = alloc.block_;
     }
 
@@ -233,12 +251,30 @@ class MemPatternPlanner {
   struct OrtValueAllocationBlock {
     int index_{-1};
     MemoryBlock block_;
-    const std::vector<size_t> program_counter_start_;
-    const std::vector<size_t> program_counter_end_;
+    std::vector<size_t> program_counter_start_;
+    std::vector<size_t> program_counter_end_;
     bool reuse_{false};
     OrtValueAllocationBlock() = default;
-    OrtValueAllocationBlock(int index, const MemoryBlock& block) : index_(index), block_(block), reuse_{false} {}
-    OrtValueAllocationBlock(int index, std::vector<size_t> program_counter_start, std::vector<size_t> program_counter_end, const MemoryBlock& block) : index_(index), block_(block), program_counter_start_(program_counter_start), program_counter_end_(program_counter_end), reuse_{true} {}
+    bool deleted_{false};
+
+    /*OrtValueAllocationBlock(OrtValueAllocationBlock&& rhs) noexcept
+        : index_{rhs.index_},
+          block_{rhs.block_},
+          program_counter_start_{rhs.program_counter_start_},
+          program_counter_end_{rhs.program_counter_end_},
+          reuse_{rhs.reuse_} {}
+
+    OrtValueAllocationBlock& operator=(OrtValueAllocationBlock&& rhs) noexcept {
+      index_ = rhs.index_;
+      block_ = rhs.block_;
+      program_counter_start_ = rhs.program_counter_start_;
+      program_counter_end_ = rhs.program_counter_end_;
+      reuse_ = rhs.reuse_;
+      return *this;
+    }*/
+
+    OrtValueAllocationBlock(int index, const MemoryBlock& block) : index_(index), block_(block), reuse_{false}, deleted_{false} {}
+    OrtValueAllocationBlock(int index, std::vector<size_t> program_counter_start, std::vector<size_t> program_counter_end, const MemoryBlock& block) : index_(index), block_(block), program_counter_start_(program_counter_start), program_counter_end_(program_counter_end), reuse_{true}, deleted_{false} {}
   };
 
   std::vector<OrtValueAllocationBlock> allocs_;
